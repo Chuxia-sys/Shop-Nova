@@ -3,6 +3,7 @@
 import { useQuery } from "@tanstack/react-query";
 import type { ApiResponse, PaginatedResult, ProductWithRelations, SearchFilters } from "@/types";
 import { PAGINATION } from "@/lib/constants";
+import { queryKeys, STALE_TIME, CACHE_TIME } from "@/lib/query-keys";
 
 // ---------------------------------------------------------------------------
 // Types
@@ -56,10 +57,15 @@ async function fetchJson<T>(url: string, options?: RequestInit): Promise<T> {
 /**
  * Fetches a paginated, filterable list of products from `/api/products`
  * using TanStack Query.
+ *
+ * Features:
+ * - Stale-while-revalidate: instantly shows cached data, background-refetches
+ * - Keeps previous page data while fetching the next (smooth pagination)
+ * - Deduplicates identical requests across components
  */
 export function useProducts(filters?: ProductsFilters): UseProductsReturn {
   const query = useQuery<ApiResponse<PaginatedResult<ProductWithRelations>>>({
-    queryKey: ["products", filters],
+    queryKey: queryKeys.products.list(filters),
     queryFn: async () => {
       const params = new URLSearchParams();
 
@@ -78,6 +84,8 @@ export function useProducts(filters?: ProductsFilters): UseProductsReturn {
         `/api/products?${params.toString()}`
       );
     },
+    staleTime: STALE_TIME.PRODUCTS,
+    gcTime: CACHE_TIME.PRODUCTS,
     placeholderData: (previousData) => previousData,
   });
 
@@ -100,12 +108,14 @@ export function useProducts(filters?: ProductsFilters): UseProductsReturn {
  */
 export function useProduct(slug: string): UseProductReturn {
   const query = useQuery<ApiResponse<ProductWithRelations>>({
-    queryKey: ["product", slug],
+    queryKey: queryKeys.products.detail(slug),
     queryFn: () =>
       fetchJson<ApiResponse<ProductWithRelations>>(
         `/api/products/${encodeURIComponent(slug)}`
       ),
     enabled: !!slug,
+    staleTime: STALE_TIME.PRODUCTS,
+    gcTime: CACHE_TIME.PRODUCTS,
   });
 
   return {
@@ -125,11 +135,13 @@ export function useProduct(slug: string): UseProductReturn {
  */
 export function useFeaturedProducts(): UseProductsReturn {
   const query = useQuery<ApiResponse<PaginatedResult<ProductWithRelations>>>({
-    queryKey: ["products", "featured"],
+    queryKey: queryKeys.products.featured(),
     queryFn: () =>
       fetchJson<ApiResponse<PaginatedResult<ProductWithRelations>>>(
         "/api/products?featured=true&limit=8"
       ),
+    staleTime: STALE_TIME.PRODUCTS,
+    gcTime: CACHE_TIME.PRODUCTS,
   });
 
   return {

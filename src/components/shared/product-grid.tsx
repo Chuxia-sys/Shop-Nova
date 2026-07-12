@@ -1,5 +1,6 @@
 "use client";
 
+import { memo } from "react";
 import { cn } from "@/lib/utils";
 import { ProductCard } from "@/components/shared/product-card";
 import { SkeletonCard } from "@/components/shared/skeleton-card";
@@ -17,7 +18,7 @@ interface ProductGridProps {
   className?: string;
 }
 
-export function ProductGrid({
+export const ProductGrid = memo(function ProductGrid({
   products,
   isLoading = false,
   columns,
@@ -66,4 +67,4 @@ export function ProductGrid({
       ))}
     </div>
   );
-}
+});

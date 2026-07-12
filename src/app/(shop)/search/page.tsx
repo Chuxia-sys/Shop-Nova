@@ -2,6 +2,7 @@
 
 import { Suspense, useState, useEffect, useCallback } from "react";
 import { useRouter, useSearchParams } from "next/navigation";
+import { useQuery } from "@tanstack/react-query";
 import { motion, AnimatePresence } from "framer-motion";
 import {
   Search,
@@ -44,29 +45,21 @@ import { LoadingState } from "@/components/shared/loading-state";
 import { ErrorState } from "@/components/shared/error-state";
 import { EmptyState } from "@/components/shared/empty-state";
 import { GlassCard } from "@/components/shared/glass-card";
+import { useSearch } from "@/hooks/use-search";
+import { queryKeys } from "@/lib/query-keys";
 import { SORT_OPTIONS, RATING_OPTIONS } from "@/lib/constants";
 import { useDebounce } from "@/hooks/use-debounce";
 import { cn, formatPrice } from "@/lib/utils";
-import type { ProductWithRelations, PaginatedResult } from "@/types";
+import type { ApiResponse, ProductWithRelations, PaginatedResult, SearchFilters } from "@/types";
 
-interface SearchFilters {
-  category: string;
-  brand: string;
-  minPrice: number;
-  maxPrice: number;
-  rating: string;
-  inStock: boolean;
-  onSale: boolean;
-}
-
-const DEFAULT_FILTERS: SearchFilters = {
-  category: "",
-  brand: "",
-  minPrice: 0,
-  maxPrice: 1000,
-  rating: "",
-  inStock: false,
-  onSale: false,
+const DEFAULT_FILTERS: Partial<SearchFilters> = {
+  category: undefined,
+  brand: undefined,
+  minPrice: undefined,
+  maxPrice: undefined,
+  rating: undefined,
+  inStock: undefined,
+  onSale: undefined,
 };
 
 const RECENT_SEARCHES_KEY = "recent-searches";
@@ -75,25 +68,44 @@ function SearchContent() {
   const router = useRouter();
   const searchParams = useSearchParams();
 
-  const [products, setProducts] = useState<ProductWithRelations[]>([]);
-  const [pagination, setPagination] = useState({ page: 1, totalPages: 1, total: 0 });
-  const [isLoading, setIsLoading] = useState(false);
-  const [error, setError] = useState<string | null>(null);
   const [mobileFiltersOpen, setMobileFiltersOpen] = useState(false);
   const [showSuggestions, setShowSuggestions] = useState(false);
 
-  const [query, setQuery] = useState(searchParams.get("q") || "");
+  // ── Use the existing useSearch hook (TanStack Query powered) ────────
+  const search = useSearch();
+  const {
+    results: products,
+    pagination,
+    isLoading,
+    error,
+    setQuery,
+    setFilters,
+    refetch,
+  } = search;
+  // We keep local mirrors for sort/page/filter UI state
+  const [query, setLocalQuery] = useState(searchParams.get("q") || "");
   const [sort, setSort] = useState(searchParams.get("sort") || "newest");
   const [page, setPage] = useState(Number(searchParams.get("page")) || 1);
-  const [filters, setFilters] = useState<SearchFilters>(() => ({
-    category: searchParams.get("category") || "",
-    brand: searchParams.get("brand") || "",
-    minPrice: Number(searchParams.get("minPrice")) || 0,
-    maxPrice: Number(searchParams.get("maxPrice")) || 1000,
-    rating: searchParams.get("rating") || "",
-    inStock: searchParams.get("inStock") === "true",
-    onSale: searchParams.get("onSale") === "true",
+
+  // Sync local query → useSearch hook query (debounced inside the hook)
+  useEffect(() => {
+    setQuery(query);
+  }, [query, setQuery]);
+
+  const [filters, setLocalFilters] = useState<Partial<SearchFilters>>(() => ({
+    category: searchParams.get("category") || undefined,
+    brand: searchParams.get("brand") || undefined,
+    minPrice: searchParams.get("minPrice") ? Number(searchParams.get("minPrice")) : undefined,
+    maxPrice: searchParams.get("maxPrice") ? Number(searchParams.get("maxPrice")) : undefined,
+    rating: searchParams.get("rating") || undefined,
+    inStock: searchParams.get("inStock") === "true" || undefined,
+    onSale: searchParams.get("onSale") === "true" || undefined,
   }));
+
+  // Sync local filters → useSearch hook filters
+  useEffect(() => {
+    setFilters(filters);
+  }, [filters, setFilters]);
 
   const [recentSearches, setRecentSearches] = useState<string[]>(() => {
     if (typeof window !== "undefined") {
@@ -106,56 +118,9 @@ function SearchContent() {
     return [];
   });
 
-  const debouncedQuery = useDebounce(query, 300);
-  const debouncedFilters = useDebounce(filters, 300);
-
-  // Fetch search results
-  const fetchResults = useCallback(async () => {
-    if (!debouncedQuery.trim()) {
-      setProducts([]);
-      setPagination({ page: 1, totalPages: 1, total: 0 });
-      setIsLoading(false);
-      return;
-    }
-
-    setIsLoading(true);
-    setError(null);
-
-    try {
-      const params = new URLSearchParams();
-      params.set("q", debouncedQuery.trim());
-      params.set("page", String(page));
-      params.set("limit", "12");
-      params.set("sort", sort);
-
-      if (debouncedFilters.category) params.set("category", debouncedFilters.category);
-      if (debouncedFilters.brand) params.set("brand", debouncedFilters.brand);
-      if (debouncedFilters.minPrice > 0) params.set("minPrice", String(debouncedFilters.minPrice));
-      if (debouncedFilters.maxPrice < 1000) params.set("maxPrice", String(debouncedFilters.maxPrice));
-      if (debouncedFilters.rating) params.set("rating", debouncedFilters.rating);
-      if (debouncedFilters.inStock) params.set("inStock", "true");
-      if (debouncedFilters.onSale) params.set("onSale", "true");
-
-      const res = await fetch(`/api/products/search?${params.toString()}`);
-      if (!res.ok) throw new Error("Search failed");
-
-      const data: PaginatedResult<ProductWithRelations> = await res.json();
-      setProducts(data.data);
-      setPagination({
-        page: data.pagination.page,
-        totalPages: data.pagination.totalPages,
-        total: data.pagination.total,
-      });
-    } catch (err) {
-      setError(err instanceof Error ? err.message : "Search failed");
-    } finally {
-      setIsLoading(false);
-    }
-  }, [debouncedQuery, page, sort, debouncedFilters]);
-
-  useEffect(() => {
-    fetchResults();
-  }, [fetchResults]);
+  // ── TanStack Query powers the search via useSearch hook ─────────────
+  // The hook handles debouncing, caching, deduplication, and error recovery.
+  // We still manage pagination/sort locally for the URL bar.
 
   // Update URL
   useEffect(() => {
@@ -190,15 +155,13 @@ function SearchContent() {
   };
 
   const handleClearSearch = () => {
-    setQuery("");
-    setProducts([]);
-    setPagination({ page: 1, totalPages: 1, total: 0 });
+    setLocalQuery("");
     setPage(1);
     setShowSuggestions(false);
   };
 
   const handleFilterChange = (key: keyof SearchFilters, value: string | number | boolean) => {
-    setFilters((prev) => ({ ...prev, [key]: value }));
+    setLocalFilters((prev) => ({ ...prev, [key]: value || undefined }));
     setPage(1);
   };
 
@@ -213,7 +176,7 @@ function SearchContent() {
   };
 
   const clearFilters = () => {
-    setFilters(DEFAULT_FILTERS);
+    setLocalFilters(DEFAULT_FILTERS);
     setSort("newest");
     setPage(1);
   };
@@ -279,7 +242,7 @@ function SearchContent() {
           step={10}
           value={[filters.minPrice, filters.maxPrice]}
           onValueChange={([min, max]) => {
-            setFilters((prev) => ({ ...prev, minPrice: min, maxPrice: max }));
+            setLocalFilters((prev) => ({ ...prev, minPrice: min || undefined, maxPrice: max || undefined }));
           }}
           className="mb-3"
         />
@@ -577,7 +540,7 @@ function SearchContent() {
                           <X
                             className="h-3 w-3 cursor-pointer"
                             onClick={() =>
-                              setFilters((prev) => ({ ...prev, minPrice: 0, maxPrice: 1000 }))
+                              setLocalFilters((prev) => ({ ...prev, minPrice: undefined, maxPrice: undefined }))
                             }
                           />
                         </Badge>

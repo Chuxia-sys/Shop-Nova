@@ -1,13 +1,13 @@
 "use client";
 
-import { useState, useEffect, useCallback } from "react";
+import { useState, useEffect } from "react";
 import { useParams, useRouter } from "next/navigation";
+import { useQuery } from "@tanstack/react-query";
 import { motion, AnimatePresence } from "framer-motion";
 import {
   ShoppingCart,
   Heart,
   Share2,
-  Check,
   Minus,
   Plus,
   Truck,
@@ -33,19 +33,41 @@ import { LoadingState } from "@/components/shared/loading-state";
 import { GlassCard } from "@/components/shared/glass-card";
 import { useCartStore } from "@/store/cart-store";
 import { useWishlistStore } from "@/store/wishlist-store";
-import { cn, formatPrice, calculateDiscount, formatDate } from "@/lib/utils";
+import { cn, formatPrice, calculateDiscount } from "@/lib/utils";
+import { queryKeys } from "@/lib/query-keys";
+import { useProduct } from "@/hooks/use-products";
+import type { ApiResponse, PaginatedResult, ProductWithRelations } from "@/types";
 import toast from "react-hot-toast";
-import type { ProductWithRelations } from "@/types";
 
 export default function ProductDetailPage() {
   const params = useParams();
   const router = useRouter();
   const slug = params.slug as string;
 
-  const [product, setProduct] = useState<ProductWithRelations | null>(null);
-  const [relatedProducts, setRelatedProducts] = useState<ProductWithRelations[]>([]);
-  const [isLoading, setIsLoading] = useState(true);
-  const [error, setError] = useState<string | null>(null);
+  // ── TanStack Query: product detail ──────────────────────────────────
+  const {
+    product,
+    isLoading,
+    error,
+  } = useProduct(slug);
+
+  // ── TanStack Query: related products ────────────────────────────────
+  const categorySlug = product?.category?.slug;
+  const relatedQuery = useQuery<ApiResponse<PaginatedResult<ProductWithRelations>>>({
+    queryKey: queryKeys.products.list({ category: categorySlug, limit: 5 }),
+    queryFn: async () => {
+      const res = await fetch(`/api/products?category=${categorySlug}&limit=5`);
+      if (!res.ok) throw new Error("Failed to fetch related products");
+      return res.json();
+    },
+    enabled: !!categorySlug,
+    staleTime: 5 * 60 * 1000,
+    gcTime: 10 * 60 * 1000,
+  });
+  const relatedProducts = (relatedQuery.data?.data?.data ?? [])
+    .filter((p) => p.id !== product?.id)
+    .slice(0, 4);
+
   const [selectedImage, setSelectedImage] = useState(0);
   const [selectedVariant, setSelectedVariant] = useState<string | null>(null);
   const [quantity, setQuantity] = useState(1);
@@ -56,47 +78,6 @@ export default function ProductDetailPage() {
   const { isInWishlist, toggleItem } = useWishlistStore();
   const cartItems = useCartStore((s) => s.items);
   const openCart = useCartStore((s) => s.openCart);
-
-  const fetchProduct = useCallback(async () => {
-    setIsLoading(true);
-    setError(null);
-    try {
-      const res = await fetch(`/api/products/${slug}`);
-      if (!res.ok) {
-        if (res.status === 404) throw new Error("Product not found");
-        throw new Error("Failed to load product");
-      }
-      const data = await res.json();
-      const productData = data.data || data;
-      setProduct(productData);
-
-      // Fetch related products from same category
-      if (productData.category?.id) {
-        try {
-          const relRes = await fetch(
-            `/api/products?category=${productData.category.slug}&limit=4`
-          );
-          if (relRes.ok) {
-            const relData = await relRes.json();
-            const related = (relData.data || relData).filter(
-              (p: ProductWithRelations) => p.id !== productData.id
-            );
-            setRelatedProducts(related.slice(0, 4));
-          }
-        } catch {
-          // Non-critical
-        }
-      }
-    } catch (err) {
-      setError(err instanceof Error ? err.message : "Something went wrong");
-    } finally {
-      setIsLoading(false);
-    }
-  }, [slug]);
-
-  useEffect(() => {
-    fetchProduct();
-  }, [fetchProduct]);
 
   // Reset quantity when product changes
   useEffect(() => {

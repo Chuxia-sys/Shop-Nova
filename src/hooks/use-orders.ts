@@ -3,6 +3,7 @@
 import { useQuery } from "@tanstack/react-query";
 import type { ApiResponse, OrderWithRelations, PaginatedResult } from "@/types";
 import { PAGINATION } from "@/lib/constants";
+import { queryKeys, STALE_TIME, CACHE_TIME, POLLING } from "@/lib/query-keys";
 
 // ---------------------------------------------------------------------------
 // Types
@@ -60,12 +61,17 @@ async function fetchJson<T>(url: string, options?: RequestInit): Promise<T> {
 /**
  * Fetches the authenticated user's orders with pagination and optional status
  * filtering, using TanStack Query.
+ *
+ * Features:
+ * - Smart polling: polls faster when orders are in active states (PENDING, CONFIRMED, PROCESSING)
+ * - Falls back to slower polling when orders are in terminal states (DELIVERED, CANCELLED, REFUNDED)
+ * - Stale-while-revalidate: shows cached orders immediately
  */
 export function useOrders(options?: UseOrdersOptions): UseOrdersReturn {
   const { page = 1, limit = PAGINATION.ORDER_PAGE_SIZE, status } = options ?? {};
 
   const query = useQuery<ApiResponse<PaginatedResult<OrderWithRelations>>>({
-    queryKey: ["orders", { page, limit, status }],
+    queryKey: queryKeys.orders.list({ page, limit, status }),
     queryFn: async () => {
       const params = new URLSearchParams({
         page: String(page),
@@ -77,7 +83,21 @@ export function useOrders(options?: UseOrdersOptions): UseOrdersReturn {
         `/api/orders?${params.toString()}`
       );
     },
+    staleTime: STALE_TIME.ORDERS,
+    gcTime: CACHE_TIME.ORDERS,
     placeholderData: (previousData) => previousData,
+    // Smart polling: dynamically adjust based on order status
+    refetchInterval: (query) => {
+      const data = query.state.data?.data?.data;
+      if (!data || data.length === 0) return POLLING.ORDER_PENDING;
+
+      const activeStatuses = ["PENDING", "CONFIRMED", "PROCESSING", "SHIPPED"];
+      const hasActive = data.some((o) => activeStatuses.includes(o.status));
+
+      if (hasActive) return POLLING.ORDER_ACTIVE;   // 5s — active order
+      return POLLING.ORDER_STALE;                    // 60s — terminal state
+    },
+    refetchIntervalInBackground: false,              // Stop polling when tab hidden
   });
 
   return {
@@ -96,13 +116,27 @@ export function useOrders(options?: UseOrdersOptions): UseOrdersReturn {
 /**
  * Fetches a single order by its ID, using TanStack Query.
  * The query is disabled when `id` is empty.
+ *
+ * Features:
+ * - Smart polling: checks for status changes when order is active
  */
 export function useOrder(id: string): UseOrderReturn {
   const query = useQuery<ApiResponse<OrderWithRelations>>({
-    queryKey: ["order", id],
+    queryKey: queryKeys.orders.detail(id),
     queryFn: () =>
       fetchJson<ApiResponse<OrderWithRelations>>(`/api/orders/${encodeURIComponent(id)}`),
     enabled: !!id,
+    staleTime: STALE_TIME.ORDERS,
+    gcTime: CACHE_TIME.ORDERS,
+    // Poll while order is in active state
+    refetchInterval: (query) => {
+      const order = query.state.data?.data;
+      if (!order) return false;
+      const activeStatuses = ["PENDING", "CONFIRMED", "PROCESSING", "SHIPPED"];
+      if (activeStatuses.includes(order.status)) return POLLING.ORDER_ACTIVE;
+      return false; // Stop polling once terminal
+    },
+    refetchIntervalInBackground: false,
   });
 
   return {

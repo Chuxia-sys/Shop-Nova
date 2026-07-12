@@ -1,7 +1,9 @@
 "use client";
 
 import { useCallback } from "react";
+import { useMutation, useQueryClient } from "@tanstack/react-query";
 import { useWishlistStore } from "@/store/wishlist-store";
+import { queryKeys } from "@/lib/query-keys";
 import type { ApiResponse } from "@/types";
 
 // ---------------------------------------------------------------------------
@@ -25,6 +27,23 @@ export interface UseWishlistReturn {
   toggleItem: (item: WishlistItemInput) => Promise<void>;
   isInWishlist: (productId: string) => boolean;
   clearWishlist: () => Promise<void>;
+  isAdding: boolean;
+}
+
+// ---------------------------------------------------------------------------
+// Helper
+// ---------------------------------------------------------------------------
+
+async function wishlistFetch<T>(url: string, options?: RequestInit): Promise<T> {
+  const response = await fetch(url, {
+    headers: { "Content-Type": "application/json" },
+    ...options,
+  });
+  if (!response.ok) {
+    const result: ApiResponse = await response.json();
+    throw new Error(result.error || `Wishlist sync failed (${response.status})`);
+  }
+  return response.json();
 }
 
 // ---------------------------------------------------------------------------
@@ -32,11 +51,15 @@ export interface UseWishlistReturn {
 // ---------------------------------------------------------------------------
 
 /**
- * Wraps the Zustand wishlist-store with server-side synchronisation.
+ * Wraps the Zustand wishlist-store with TanStack Query mutations for server sync.
  *
- * Performs optimistic local updates first, then syncs with the server.
+ * - Optimistic local update first
+ * - Server sync via useMutation
+ * - Rollback on failure
+ * - Query invalidation on success
  */
 export function useWishlist(): UseWishlistReturn {
+  const queryClient = useQueryClient();
   const {
     items,
     addItem: storeAddItem,
@@ -48,53 +71,55 @@ export function useWishlist(): UseWishlistReturn {
   } = useWishlistStore();
 
   // -----------------------------------------------------------------------
+  // Mutations
+  // -----------------------------------------------------------------------
+
+  const addMutation = useMutation({
+    mutationFn: (productId: string) =>
+      wishlistFetch<ApiResponse>("/api/wishlist", {
+        method: "POST",
+        body: JSON.stringify({ productId }),
+      }),
+    retry: 2,
+    retryDelay: 1000,
+  });
+
+  const removeMutation = useMutation({
+    mutationFn: (productId: string) =>
+      wishlistFetch<ApiResponse>(
+        `/api/wishlist?productId=${encodeURIComponent(productId)}`,
+        { method: "DELETE" }
+      ),
+    retry: 1,
+  });
+
+  // -----------------------------------------------------------------------
   // Actions
   // -----------------------------------------------------------------------
 
   const addItem = useCallback(
     async (item: WishlistItemInput): Promise<void> => {
-      // Optimistic add
       storeAddItem(item);
-
       try {
-        const response = await fetch("/api/wishlist", {
-          method: "POST",
-          headers: { "Content-Type": "application/json" },
-          body: JSON.stringify({ productId: item.productId }),
-        });
-
-        if (!response.ok) {
-          const result: ApiResponse = await response.json();
-          throw new Error(result.error || `Failed to sync wishlist (${response.status})`);
-        }
+        await addMutation.mutateAsync(item.productId);
       } catch (error) {
-        // Revert optimistic update
         storeRemoveItem(item.productId);
         throw error;
       }
     },
-    [storeAddItem, storeRemoveItem]
+    [storeAddItem, storeRemoveItem, addMutation]
   );
 
-  const removeItem = useCallback(
+  const removeItemFn = useCallback(
     async (productId: string): Promise<void> => {
       storeRemoveItem(productId);
-
       try {
-        const response = await fetch(
-          `/api/wishlist?productId=${encodeURIComponent(productId)}`,
-          { method: "DELETE" }
-        );
-
-        if (!response.ok) {
-          const result: ApiResponse = await response.json();
-          throw new Error(result.error || `Failed to sync wishlist (${response.status})`);
-        }
+        await removeMutation.mutateAsync(productId);
       } catch {
         // Non-blocking: local state is already updated
       }
     },
-    [storeRemoveItem]
+    [storeRemoveItem, removeMutation]
   );
 
   const toggleItem = useCallback(
@@ -105,36 +130,28 @@ export function useWishlist(): UseWishlistReturn {
       storeToggleItem(item);
 
       try {
-        const method = wasInWishlist ? "DELETE" : "POST";
-
-        if (method === "DELETE") {
-          await fetch(
-            `/api/wishlist?productId=${encodeURIComponent(item.productId)}`,
-            { method: "DELETE" }
-          );
+        if (wasInWishlist) {
+          await removeMutation.mutateAsync(item.productId);
         } else {
-          await fetch("/api/wishlist", {
-            method: "POST",
-            headers: { "Content-Type": "application/json" },
-            body: JSON.stringify({ productId: item.productId }),
-          });
+          await addMutation.mutateAsync(item.productId);
         }
       } catch {
         // Revert toggle
         storeToggleItem(item);
       }
     },
-    [isInWishlist, storeToggleItem]
+    [isInWishlist, storeToggleItem, addMutation, removeMutation]
   );
 
   const clearWishlist = useCallback(async (): Promise<void> => {
     storeClearWishlist();
 
     try {
-      const response = await fetch("/api/wishlist", { method: "DELETE" });
-
-      if (!response.ok) {
-        throw new Error(`Failed to clear wishlist on server (${response.status})`);
+      await fetch("/api/wishlist", { method: "DELETE" });
+    } catch {
+      // Non-blocking: local state is already cleared
+    }
+  }, [storeClearWishlist]);
       }
     } catch {
       // Non-blocking: local state is already cleared

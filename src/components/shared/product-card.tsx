@@ -1,6 +1,6 @@
 "use client";
 
-import { useState } from "react";
+import { memo, useState, useCallback } from "react";
 import Link from "next/link";
 import { motion } from "framer-motion";
 import { cn, formatPrice, calculateDiscount } from "@/lib/utils";
@@ -11,6 +11,7 @@ import { Rating } from "@/components/shared/rating";
 import { ShoppingCart, Heart, Eye } from "lucide-react";
 import { useCartStore } from "@/store/cart-store";
 import { useWishlistStore } from "@/store/wishlist-store";
+import { useProductPrefetch } from "@/hooks/use-prefetch";
 import type { ProductWithRelations } from "@/types";
 
 interface ProductCardProps {
@@ -18,7 +19,17 @@ interface ProductCardProps {
   className?: string;
 }
 
-export function ProductCard({ product, className }: ProductCardProps) {
+export const ProductCard = memo(function ProductCard({ product, className }: ProductCardProps) {
+  const [isImageLoaded, setIsImageLoaded] = useState(false);
+  const addToCart = useCartStore((s) => s.addItem);
+  const { isInWishlist, toggleItem } = useWishlistStore();
+  const prefetchProduct = useProductPrefetch();
+
+  const primaryImage = product.images?.find((img) => img.isPrimary)?.url || product.images?.[0]?.url;
+  const secondaryImage = product.images?.find((img) => !img.isPrimary)?.url;
+  const discount = calculateDiscount(product.price, product.compareAtPrice);
+  const productReviews = product.reviews ?? [];
+  const averageRating =
   const [isImageLoaded, setIsImageLoaded] = useState(false);
   const addToCart = useCartStore((s) => s.addItem);
   const { isInWishlist, toggleItem } = useWishlistStore();
@@ -69,7 +80,12 @@ export function ProductCard({ product, className }: ProductCardProps) {
       animate={{ opacity: 1, y: 0 }}
       transition={{ duration: 0.3 }}
     >
-      <Link href={`/products/${product.slug}`} className="group block">
+      <Link
+        href={`/products/${product.slug}`}
+        className="group block"
+        onMouseEnter={() => prefetchProduct(product.slug)}
+        onFocus={() => prefetchProduct(product.slug)}
+      >
         <Card
           className={cn(
             "relative overflow-hidden transition-all duration-300 hover:shadow-lg",
@@ -180,4 +196,4 @@ export function ProductCard({ product, className }: ProductCardProps) {
       </Link>
     </motion.div>
   );
-}
+});

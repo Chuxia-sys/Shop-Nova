@@ -12,6 +12,7 @@ import type {
   TopProduct,
 } from "@/types";
 import { PAGINATION } from "@/lib/constants";
+import { queryKeys, STALE_TIME, CACHE_TIME, POLLING } from "@/lib/query-keys";
 
 // ---------------------------------------------------------------------------
 // Firestore-based types (replacing Prisma types)
@@ -107,23 +108,33 @@ function buildPaginationParams(
 
 /**
  * Fetches dashboard statistics from `/api/admin/stats`.
+ * Smart polling: updates every 30 seconds while the page is visible.
  */
 export function useAdminStats() {
   return useQuery<ApiResponse<DashboardStats>>({
-    queryKey: ["admin", "stats"],
+    queryKey: queryKeys.admin.stats(),
     queryFn: () => fetchJson<ApiResponse<DashboardStats>>("/api/admin/stats"),
+    staleTime: STALE_TIME.ANALYTICS,
+    gcTime: CACHE_TIME.ANALYTICS,
+    refetchInterval: POLLING.ADMIN_DASHBOARD,
+    refetchIntervalInBackground: false,
   });
 }
 
 /**
  * Fetches revenue chart data from `/api/admin/stats/revenue`.
+ * Smart polling: updates every 60 seconds while the page is visible.
  */
 export function useAdminRevenueData(range?: "7d" | "30d" | "90d" | "1y") {
   const params = range ? `?range=${range}` : "";
   return useQuery<ApiResponse<RevenueData[]>>({
-    queryKey: ["admin", "revenue", range],
+    queryKey: queryKeys.admin.revenue(range),
     queryFn: () =>
       fetchJson<ApiResponse<RevenueData[]>>(`/api/admin/stats/revenue${params}`),
+    staleTime: STALE_TIME.ANALYTICS,
+    gcTime: CACHE_TIME.ANALYTICS,
+    refetchInterval: POLLING.ADMIN_ANALYTICS,
+    refetchIntervalInBackground: false,
   });
 }
 
@@ -132,9 +143,11 @@ export function useAdminRevenueData(range?: "7d" | "30d" | "90d" | "1y") {
  */
 export function useAdminSalesByCategory() {
   return useQuery<ApiResponse<SalesByCategory[]>>({
-    queryKey: ["admin", "sales-by-category"],
+    queryKey: queryKeys.admin.salesByCategory(),
     queryFn: () =>
       fetchJson<ApiResponse<SalesByCategory[]>>("/api/admin/stats/sales-by-category"),
+    staleTime: STALE_TIME.ANALYTICS,
+    gcTime: CACHE_TIME.ANALYTICS,
   });
 }
 
@@ -143,11 +156,13 @@ export function useAdminSalesByCategory() {
  */
 export function useAdminTopProducts(limit: number = 10) {
   return useQuery<ApiResponse<TopProduct[]>>({
-    queryKey: ["admin", "top-products", limit],
+    queryKey: queryKeys.admin.topProducts(limit),
     queryFn: () =>
       fetchJson<ApiResponse<TopProduct[]>>(
         `/api/admin/stats/top-products?limit=${limit}`
       ),
+    staleTime: STALE_TIME.ANALYTICS,
+    gcTime: CACHE_TIME.ANALYTICS,
   });
 }
 
@@ -169,13 +184,15 @@ export function useAdminProducts(options?: AdminProductsOptions) {
   const { page = 1, limit = PAGINATION.ADMIN_PAGE_SIZE, search, status } = options ?? {};
 
   return useQuery<ApiResponse<PaginatedResult<ProductWithRelations>>>({
-    queryKey: ["admin", "products", { page, limit, search, status }],
+    queryKey: queryKeys.admin.products({ page, limit, search, status }),
     queryFn: async () => {
       const params = buildPaginationParams(page, limit, { search, status });
       return fetchJson<ApiResponse<PaginatedResult<ProductWithRelations>>>(
         `/api/admin/products?${params.toString()}`
       );
     },
+    staleTime: STALE_TIME.PRODUCTS,
+    gcTime: CACHE_TIME.PRODUCTS,
     placeholderData: (previousData) => previousData,
   });
 }
@@ -198,13 +215,15 @@ export function useAdminOrders(options?: AdminOrdersOptions) {
   const { page = 1, limit = PAGINATION.ADMIN_PAGE_SIZE, status, search } = options ?? {};
 
   return useQuery<ApiResponse<PaginatedResult<OrderWithRelations>>>({
-    queryKey: ["admin", "orders", { page, limit, status, search }],
+    queryKey: queryKeys.admin.orders({ page, limit, status, search }),
     queryFn: async () => {
       const params = buildPaginationParams(page, limit, { status, search });
       return fetchJson<ApiResponse<PaginatedResult<OrderWithRelations>>>(
         `/api/admin/orders?${params.toString()}`
       );
     },
+    staleTime: STALE_TIME.ORDERS,
+    gcTime: CACHE_TIME.ORDERS,
     placeholderData: (previousData) => previousData,
   });
 }
@@ -227,13 +246,15 @@ export function useAdminUsers(options?: AdminUsersOptions) {
   const { page = 1, limit = PAGINATION.ADMIN_PAGE_SIZE, search, role } = options ?? {};
 
   return useQuery<ApiResponse<PaginatedResult<User>>>({
-    queryKey: ["admin", "users", { page, limit, search, role }],
+    queryKey: queryKeys.admin.users({ page, limit, search, role }),
     queryFn: async () => {
       const params = buildPaginationParams(page, limit, { search, role });
       return fetchJson<ApiResponse<PaginatedResult<User>>>(
         `/api/admin/users?${params.toString()}`
       );
     },
+    staleTime: STALE_TIME.USER_PROFILE,
+    gcTime: CACHE_TIME.USER_PROFILE,
     placeholderData: (previousData) => previousData,
   });
 }
@@ -247,8 +268,10 @@ export function useAdminUsers(options?: AdminUsersOptions) {
  */
 export function useAdminCategories() {
   return useQuery<ApiResponse<Category[]>>({
-    queryKey: ["admin", "categories"],
+    queryKey: queryKeys.admin.categories(),
     queryFn: () => fetchJson<ApiResponse<Category[]>>("/api/admin/categories"),
+    staleTime: STALE_TIME.CATEGORIES,
+    gcTime: CACHE_TIME.CATEGORIES,
   });
 }
 
@@ -270,7 +293,7 @@ export function useAdminCoupons(options?: AdminCouponsOptions) {
   const { page = 1, limit = PAGINATION.ADMIN_PAGE_SIZE, search, isActive } = options ?? {};
 
   return useQuery<ApiResponse<PaginatedResult<Coupon>>>({
-    queryKey: ["admin", "coupons", { page, limit, search, isActive }],
+    queryKey: queryKeys.admin.coupons({ page, limit, search, isActive }),
     queryFn: async () => {
       const params = buildPaginationParams(page, limit, {
         search,
@@ -280,6 +303,8 @@ export function useAdminCoupons(options?: AdminCouponsOptions) {
         `/api/admin/coupons?${params.toString()}`
       );
     },
+    staleTime: STALE_TIME.SETTINGS,
+    gcTime: CACHE_TIME.SETTINGS,
     placeholderData: (previousData) => previousData,
   });
 }

@@ -3,6 +3,7 @@
 import { useCallback } from "react";
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import type { ApiResponse } from "@/types";
+import { queryKeys, STALE_TIME, CACHE_TIME, POLLING } from "@/lib/query-keys";
 
 // ---------------------------------------------------------------------------
 // Types
@@ -59,20 +60,17 @@ async function fetchJson<T>(url: string, options?: RequestInit): Promise<T> {
 }
 
 // ---------------------------------------------------------------------------
-// Constants
-// ---------------------------------------------------------------------------
-
-const NOTIFICATIONS_POLL_INTERVAL_MS = 60_000; // 60 seconds
-
-// ---------------------------------------------------------------------------
 // Hook
 // ---------------------------------------------------------------------------
 
 /**
  * Fetches and manages the authenticated user's notifications.
  *
- * Automatically polls for new notifications every 60 seconds and provides
- * actions to mark notifications as read (individually or in bulk) or dismiss them.
+ * Features:
+ * - Smart polling: polls every 60 seconds while page is visible
+ * - Stale-while-revalidate: shows cached notifications immediately
+ * - Optimistic mutations: mark as read, mark all as read, dismiss
+ * - Query invalidation on mutations keeps data fresh
  */
 export function useNotifications(): UseNotificationsReturn {
   const queryClient = useQueryClient();
@@ -82,10 +80,12 @@ export function useNotifications(): UseNotificationsReturn {
   // -----------------------------------------------------------------------
 
   const query = useQuery<ApiResponse<NotificationsData>>({
-    queryKey: ["notifications"],
+    queryKey: queryKeys.notifications.list(),
     queryFn: () => fetchJson<ApiResponse<NotificationsData>>("/api/notifications"),
-    refetchInterval: NOTIFICATIONS_POLL_INTERVAL_MS,
-    staleTime: 30_000,
+    staleTime: STALE_TIME.NOTIFICATIONS,
+    gcTime: CACHE_TIME.NOTIFICATIONS,
+    refetchInterval: POLLING.NOTIFICATIONS,
+    refetchIntervalInBackground: false,  // Stop polling when tab hidden
   });
 
   // -----------------------------------------------------------------------
@@ -99,7 +99,7 @@ export function useNotifications(): UseNotificationsReturn {
         body: JSON.stringify({ isRead: true }),
       }),
     onSuccess: () => {
-      queryClient.invalidateQueries({ queryKey: ["notifications"] });
+      queryClient.invalidateQueries({ queryKey: queryKeys.notifications.all });
     },
   });
 
@@ -110,7 +110,7 @@ export function useNotifications(): UseNotificationsReturn {
         body: JSON.stringify({ markAllAsRead: true }),
       }),
     onSuccess: () => {
-      queryClient.invalidateQueries({ queryKey: ["notifications"] });
+      queryClient.invalidateQueries({ queryKey: queryKeys.notifications.all });
     },
   });
 
@@ -120,7 +120,7 @@ export function useNotifications(): UseNotificationsReturn {
         method: "DELETE",
       }),
     onSuccess: () => {
-      queryClient.invalidateQueries({ queryKey: ["notifications"] });
+      queryClient.invalidateQueries({ queryKey: queryKeys.notifications.all });
     },
   });
 

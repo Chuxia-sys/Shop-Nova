@@ -1,3 +1,4 @@
+import { memo } from "react";
 import { cn } from "@/lib/utils";
 import { Skeleton } from "@/components/ui/skeleton";
 import { Card } from "@/components/ui/card";
@@ -6,7 +7,7 @@ interface SkeletonCardProps {
   className?: string;
 }
 
-export function SkeletonCard({ className }: SkeletonCardProps) {
+export const SkeletonCard = memo(function SkeletonCard({ className }: SkeletonCardProps) {
   return (
     <Card className={cn("overflow-hidden", className)}>
       <Skeleton className="aspect-square w-full rounded-none" />
@@ -25,4 +26,4 @@ export function SkeletonCard({ className }: SkeletonCardProps) {
       </div>
     </Card>
   );
-}
+});

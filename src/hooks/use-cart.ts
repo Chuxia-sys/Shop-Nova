@@ -1,7 +1,9 @@
 "use client";
 
 import { useCallback } from "react";
+import { useMutation, useQueryClient } from "@tanstack/react-query";
 import { useCartStore } from "@/store/cart-store";
+import { queryKeys } from "@/lib/query-keys";
 import type { ApiResponse } from "@/types";
 import { FREE_SHIPPING_THRESHOLD, SHIPPING_FEE } from "@/lib/constants";
 
@@ -43,6 +45,8 @@ export interface UseCartReturn {
   toggleCart: () => void;
   openCart: () => void;
   closeCart: () => void;
+  isAdding: boolean;
+  isRemoving: boolean;
 }
 
 // ---------------------------------------------------------------------------
@@ -64,17 +68,33 @@ function computeTotal(subtotal: number, shipping: number): number {
   return subtotal + shipping;
 }
 
+/** Shared helper for throwing on non-ok fetch responses. */
+async function cartFetch<T>(url: string, options?: RequestInit): Promise<T> {
+  const response = await fetch(url, {
+    headers: { "Content-Type": "application/json" },
+    ...options,
+  });
+  if (!response.ok) {
+    const result: ApiResponse = await response.json();
+    throw new Error(result.error || `Cart sync failed (${response.status})`);
+  }
+  return response.json();
+}
+
 // ---------------------------------------------------------------------------
 // Hook
 // ---------------------------------------------------------------------------
 
 /**
- * Wraps the Zustand cart-store with server-side synchronisation.
+ * Wraps the Zustand cart-store with TanStack Query mutations for server sync.
  *
- * Performs optimistic local updates first, then syncs with the server.
- * If the server request fails, the local state is reverted.
+ * - Optimistic local update first
+ * - Server sync via useMutation
+ * - Rollback on failure
+ * - Query invalidation on success
  */
 export function useCart(): UseCartReturn {
+  const queryClient = useQueryClient();
   const {
     items: storeItems,
     isOpen,
@@ -87,7 +107,6 @@ export function useCart(): UseCartReturn {
     closeCart,
   } = useCartStore();
 
-  // Cast to our display type
   const items = storeItems as unknown as CartItemDisplay[];
 
   // -----------------------------------------------------------------------
@@ -99,13 +118,23 @@ export function useCart(): UseCartReturn {
   const itemCount = items.reduce((sum, item) => sum + item.quantity, 0);
 
   // -----------------------------------------------------------------------
-  // Actions
+  // Mutations
   // -----------------------------------------------------------------------
 
-  const addItem = useCallback(
-    async (input: AddToCartInput): Promise<void> => {
-      // Build a temporary item to add to the store optimistically.
-      // The store generates its own id.
+  /** Invalidate product queries after any cart change to reflect stock. */
+  const invalidateAfterCartChange = useCallback(() => {
+    queryClient.invalidateQueries({ queryKey: queryKeys.products.all });
+    queryClient.invalidateQueries({ queryKey: queryKeys.cart.all });
+  }, [queryClient]);
+
+  const addMutation = useMutation({
+    mutationFn: (input: AddToCartInput) =>
+      cartFetch<ApiResponse>("/api/cart", {
+        method: "POST",
+        body: JSON.stringify(input),
+      }),
+    onMutate: async (input) => {
+      // Optimistic add
       const tempItem = {
         productId: input.productId,
         variantId: input.variantId,
@@ -117,102 +146,107 @@ export function useCart(): UseCartReturn {
         image: "",
         maxQuantity: 999,
       };
-
       storeAddItem(tempItem as any);
+    },
+    onError: (_err, input) => {
+      // Rollback optimistic update
+      storeRemoveItem(input.productId, input.variantId);
+    },
+    onSuccess: () => {
+      invalidateAfterCartChange();
+    },
+    retry: 2,
+    retryDelay: 1000,
+  });
 
-      try {
-        const response = await fetch("/api/cart", {
-          method: "POST",
-          headers: { "Content-Type": "application/json" },
-          body: JSON.stringify(input),
-        });
-
-        if (!response.ok) {
-          const result: ApiResponse = await response.json();
-          throw new Error(result.error || `Failed to sync cart (${response.status})`);
-        }
-      } catch (error) {
-        // Revert optimistic update
-        storeRemoveItem(input.productId, input.variantId);
-        throw error;
+  const removeMutation = useMutation({
+    mutationFn: ({ productId, variantId }: { productId: string; variantId?: string }) => {
+      const params = new URLSearchParams({ productId });
+      if (variantId) params.set("variantId", variantId);
+      return cartFetch<ApiResponse>(`/api/cart?${params.toString()}`, { method: "DELETE" });
+    },
+    onMutate: async ({ productId, variantId }) => {
+      // Snapshot for rollback
+      const snapshot = storeItems.find(
+        (i) => i.productId === productId && i.variantId === variantId
+      );
+      storeRemoveItem(productId, variantId);
+      return { snapshot };
+    },
+    onError: (_err, { productId, variantId }, context) => {
+      // Rollback — restore the item
+      if (context?.snapshot) {
+        storeAddItem(context.snapshot as any);
       }
     },
-    [storeAddItem, storeRemoveItem]
+    onSuccess: () => {
+      invalidateAfterCartChange();
+    },
+    retry: 2,
+    retryDelay: 1000,
+  });
+
+  const updateMutation = useMutation({
+    mutationFn: ({ productId, quantity, variantId }: { productId: string; quantity: number; variantId?: string }) =>
+      cartFetch<ApiResponse>("/api/cart", {
+        method: "PATCH",
+        body: JSON.stringify({ productId, quantity, variantId }),
+      }),
+    onMutate: async ({ productId, quantity, variantId }) => {
+      // Snapshot for rollback
+      const snapshot = [...storeItems];
+      storeUpdateQuantity(productId, quantity, variantId);
+      return { snapshot };
+    },
+    onError: (_err, { productId, quantity, variantId }, context) => {
+      // Rollback
+      if (context?.snapshot) {
+        storeClearCart();
+        context.snapshot.forEach((item) => storeAddItem(item as any));
+      }
+    },
+    retry: 2,
+    retryDelay: 1000,
+  });
+
+  const clearMutation = useMutation({
+    mutationFn: () =>
+      cartFetch<ApiResponse>("/api/cart", { method: "DELETE" }),
+    onMutate: async () => {
+      storeClearCart();
+    },
+    onError: () => {
+      // Best-effort: state stays cleared locally
+    },
+  });
+
+  // -----------------------------------------------------------------------
+  // Public API
+  // -----------------------------------------------------------------------
+
+  const addItem = useCallback(
+    async (input: AddToCartInput) => { await addMutation.mutateAsync(input); },
+    [addMutation]
   );
 
   const removeItem = useCallback(
-    async (productId: string, variantId?: string): Promise<void> => {
-      const currentItem = storeItems.find(
-        (i) => i.productId === productId && i.variantId === variantId
-      );
-
-      // Optimistic remove
-      storeRemoveItem(productId, variantId);
-
-      try {
-        const params = new URLSearchParams({ productId });
-        if (variantId) params.set("variantId", variantId);
-
-        const response = await fetch(`/api/cart?${params.toString()}`, {
-          method: "DELETE",
-        });
-
-        if (!response.ok) {
-          const result: ApiResponse = await response.json();
-          throw new Error(result.error || `Failed to sync cart (${response.status})`);
-        }
-      } catch (error) {
-        // Revert: add the item back
-        if (currentItem) {
-          storeAddItem(currentItem as any);
-        }
-        throw error;
-      }
+    async (productId: string, variantId?: string) => {
+      await removeMutation.mutateAsync({ productId, variantId });
     },
-    [storeItems, storeRemoveItem, storeAddItem]
+    [removeMutation]
   );
 
   const updateQuantity = useCallback(
-    async (productId: string, quantity: number, variantId?: string): Promise<void> => {
-      const previousSnapshot = [...storeItems];
-
-      // Optimistic update
-      storeUpdateQuantity(productId, quantity, variantId);
-
-      try {
-        const response = await fetch("/api/cart", {
-          method: "PATCH",
-          headers: { "Content-Type": "application/json" },
-          body: JSON.stringify({ productId, quantity, variantId }),
-        });
-
-        if (!response.ok) {
-          const result: ApiResponse = await response.json();
-          throw new Error(result.error || `Failed to sync cart (${response.status})`);
-        }
-      } catch (error) {
-        // Revert to previous snapshot
-        storeClearCart();
-        previousSnapshot.forEach((item) => storeAddItem(item as any));
-        throw error;
-      }
+    async (productId: string, quantity: number, variantId?: string) => {
+      await updateMutation.mutateAsync({ productId, quantity, variantId });
     },
-    [storeItems, storeUpdateQuantity, storeClearCart, storeAddItem]
+    [updateMutation]
   );
 
-  const clearCart = useCallback(async (): Promise<void> => {
-    storeClearCart();
-
-    try {
-      const response = await fetch("/api/cart", { method: "DELETE" });
-
-      if (!response.ok) {
-        throw new Error(`Failed to clear cart on server (${response.status})`);
-      }
-    } catch {
-      // Non-blocking: local state is already cleared
-    }
-  }, [storeClearCart]);
+  const clearCartFn = useCallback(
+    async () => { await clearMutation.mutateAsync(); },
+    [clearMutation]
+  );
 
   return {
     items,
@@ -224,9 +258,11 @@ export function useCart(): UseCartReturn {
     addItem,
     removeItem,
     updateQuantity,
-    clearCart,
+    clearCart: clearCartFn,
     toggleCart,
     openCart,
     closeCart,
+    isAdding: addMutation.isPending,
+    isRemoving: removeMutation.isPending,
   };
 }

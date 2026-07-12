@@ -1,7 +1,8 @@
 "use client";
 
-import { Suspense, useCallback, useEffect, useState } from "react";
+import { Suspense, useCallback, useState } from "react";
 import { useRouter, useSearchParams } from "next/navigation";
+import { useQuery } from "@tanstack/react-query";
 import { motion, AnimatePresence } from "framer-motion";
 import {
   SlidersHorizontal,
@@ -42,10 +43,12 @@ import { LoadingState } from "@/components/shared/loading-state";
 import { ErrorState } from "@/components/shared/error-state";
 import { EmptyState } from "@/components/shared/empty-state";
 import { GlassCard } from "@/components/shared/glass-card";
+import { useProducts } from "@/hooks/use-products";
+import { queryKeys } from "@/lib/query-keys";
 import { SORT_OPTIONS, RATING_OPTIONS } from "@/lib/constants";
 import { useDebounce } from "@/hooks/use-debounce";
 import { cn, formatPrice } from "@/lib/utils";
-import type { ProductWithRelations, PaginatedResult } from "@/types";
+import type { ApiResponse, ProductWithRelations, PaginatedResult } from "@/types";
 
 const MOBILE_FILTER_BREAKPOINT = 1024;
 
@@ -75,16 +78,8 @@ function ProductsContent() {
   const router = useRouter();
   const searchParams = useSearchParams();
 
-  const [products, setProducts] = useState<ProductWithRelations[]>([]);
-  const [pagination, setPagination] = useState({ page: 1, totalPages: 1, total: 0 });
-  const [isLoading, setIsLoading] = useState(true);
-  const [error, setError] = useState<string | null>(null);
   const [mobileFiltersOpen, setMobileFiltersOpen] = useState(false);
   const [viewMode, setViewMode] = useState<"grid" | "list">("grid");
-
-  // Categories and brands for filter options
-  const [categories, setCategories] = useState<{ id: string; name: string; slug: string }[]>([]);
-  const [brands, setBrands] = useState<{ id: string; name: string; slug: string }[]>([]);
 
   // Filters state
   const [filters, setFilters] = useState<FiltersState>(() => ({
@@ -102,69 +97,50 @@ function ProductsContent() {
   const [page, setPage] = useState(Number(searchParams.get("page")) || 1);
   const debouncedFilters = useDebounce(filters, 300);
 
-  // Fetch categories and brands for filter options
-  useEffect(() => {
-    const fetchFilterOptions = async () => {
-      try {
-        const [catRes, brandRes] = await Promise.all([
-          fetch("/api/categories"),
-          fetch("/api/brands"),
-        ]);
-        if (catRes.ok) {
-          const catData = await catRes.json();
-          setCategories(catData.data || catData);
-        }
-        if (brandRes.ok) {
-          const brandData = await brandRes.json();
-          setBrands(brandData.data || brandData);
-        }
-      } catch {
-        // Silently fail - filters just won't have dynamic options
-      }
-    };
-    fetchFilterOptions();
-  }, []);
+  // ── TanStack Query: categories (30-min stale, 60-min cache) ────────
+  const categoriesQuery = useQuery<ApiResponse<{ id: string; name: string; slug: string }[]>>({
+    queryKey: queryKeys.categories.list(),
+    queryFn: async () => {
+      const res = await fetch("/api/categories");
+      if (!res.ok) throw new Error("Failed to fetch categories");
+      return res.json();
+    },
+    staleTime: 30 * 60 * 1000,
+    gcTime: 60 * 60 * 1000,
+  });
+  const categories = categoriesQuery.data?.data ?? [];
 
-  // Fetch products
-  const fetchProducts = useCallback(async () => {
-    setIsLoading(true);
-    setError(null);
+  // ── TanStack Query: brands (30-min stale, 60-min cache) ────────────
+  const brandsQuery = useQuery<ApiResponse<{ id: string; name: string; slug: string }[]>>({
+    queryKey: queryKeys.brands.list(),
+    queryFn: async () => {
+      const res = await fetch("/api/brands");
+      if (!res.ok) throw new Error("Failed to fetch brands");
+      return res.json();
+    },
+    staleTime: 30 * 60 * 1000,
+    gcTime: 60 * 60 * 1000,
+  });
+  const brands = brandsQuery.data?.data ?? [];
 
-    try {
-      const params = new URLSearchParams();
-      params.set("page", String(page));
-      params.set("limit", "12");
-      params.set("sort", sort);
-
-      if (debouncedFilters.category) params.set("category", debouncedFilters.category);
-      if (debouncedFilters.brand) params.set("brand", debouncedFilters.brand);
-      if (debouncedFilters.minPrice > 0) params.set("minPrice", String(debouncedFilters.minPrice));
-      if (debouncedFilters.maxPrice < 1000) params.set("maxPrice", String(debouncedFilters.maxPrice));
-      if (debouncedFilters.rating) params.set("rating", debouncedFilters.rating);
-      if (debouncedFilters.inStock) params.set("inStock", "true");
-      if (debouncedFilters.onSale) params.set("onSale", "true");
-      if (debouncedFilters.query) params.set("q", debouncedFilters.query);
-
-      const res = await fetch(`/api/products?${params.toString()}`);
-      if (!res.ok) throw new Error("Failed to fetch products");
-
-      const data: PaginatedResult<ProductWithRelations> = await res.json();
-      setProducts(data.data);
-      setPagination({
-        page: data.pagination.page,
-        totalPages: data.pagination.totalPages,
-        total: data.pagination.total,
-      });
-    } catch (err) {
-      setError(err instanceof Error ? err.message : "Something went wrong");
-    } finally {
-      setIsLoading(false);
-    }
-  }, [page, sort, debouncedFilters]);
-
-  useEffect(() => {
-    fetchProducts();
-  }, [fetchProducts]);
+  // ── TanStack Query: products (via useProducts hook) ────────────────
+  const {
+    products,
+    pagination,
+    isLoading,
+    error,
+  } = useProducts({
+    category: debouncedFilters.category || undefined,
+    brand: debouncedFilters.brand || undefined,
+    minPrice: debouncedFilters.minPrice > 0 ? debouncedFilters.minPrice : undefined,
+    maxPrice: debouncedFilters.maxPrice < 1000 ? debouncedFilters.maxPrice : undefined,
+    rating: debouncedFilters.rating ? Number(debouncedFilters.rating) : undefined,
+    sort,
+    page,
+    limit: 12,
+    inStock: debouncedFilters.inStock || undefined,
+    onSale: debouncedFilters.onSale || undefined,
+  });
 
   // Update URL search params
   useEffect(() => {
