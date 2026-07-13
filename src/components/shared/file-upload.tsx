@@ -39,18 +39,18 @@ export function FileUpload({
   const [isDragOver, setIsDragOver] = useState(false);
   const inputRef = useRef<HTMLInputElement>(null);
 
-  const validateFile = (file: File): string | null => {
-    if (file.size > maxSizeMB * 1024 * 1024) {
-      return `File "${file.name}" exceeds ${maxSizeMB}MB limit`;
-    }
-    if (!file.type.startsWith("image/") && accept === "image/*") {
-      return `File "${file.name}" is not an image`;
-    }
-    return null;
-  };
-
   const addFiles = useCallback(
     (newFiles: FileList | File[]) => {
+      const validateFile = (file: File): string | null => {
+        if (file.size > maxSizeMB * 1024 * 1024) {
+          return `File "${file.name}" exceeds ${maxSizeMB}MB limit`;
+        }
+        if (!file.type.startsWith("image/") && accept === "image/*") {
+          return `File "${file.name}" is not an image`;
+        }
+        return null;
+      };
+
       const fileArray = Array.from(newFiles);
       const remaining = maxFiles - files.length;
 
@@ -82,7 +82,7 @@ export function FileUpload({
 
       setFiles((prev) => [...prev, ...validFiles]);
     },
-    [files.length, maxFiles, maxSizeMB]
+    [files.length, maxFiles, maxSizeMB, accept]
   );
 
   const handleDrop = (e: DragEvent<HTMLDivElement>) => {

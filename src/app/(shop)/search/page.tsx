@@ -97,7 +97,7 @@ function SearchContent() {
     brand: searchParams.get("brand") || undefined,
     minPrice: searchParams.get("minPrice") ? Number(searchParams.get("minPrice")) : undefined,
     maxPrice: searchParams.get("maxPrice") ? Number(searchParams.get("maxPrice")) : undefined,
-    rating: searchParams.get("rating") || undefined,
+    rating: searchParams.get("rating") ? Number(searchParams.get("rating")) : undefined,
     inStock: searchParams.get("inStock") === "true" || undefined,
     onSale: searchParams.get("onSale") === "true" || undefined,
   }));
@@ -130,9 +130,9 @@ function SearchContent() {
     if (sort !== "newest") params.set("sort", sort);
     if (filters.category) params.set("category", filters.category);
     if (filters.brand) params.set("brand", filters.brand);
-    if (filters.minPrice > 0) params.set("minPrice", String(filters.minPrice));
-    if (filters.maxPrice < 1000) params.set("maxPrice", String(filters.maxPrice));
-    if (filters.rating) params.set("rating", filters.rating);
+    if (filters.minPrice != null && filters.minPrice > 0) params.set("minPrice", String(filters.minPrice));
+    if (filters.maxPrice != null && filters.maxPrice < 1000) params.set("maxPrice", String(filters.maxPrice));
+    if (filters.rating != null) params.set("rating", String(filters.rating));
     if (filters.inStock) params.set("inStock", "true");
     if (filters.onSale) params.set("onSale", "true");
 
@@ -160,7 +160,7 @@ function SearchContent() {
     setShowSuggestions(false);
   };
 
-  const handleFilterChange = (key: keyof SearchFilters, value: string | number | boolean) => {
+  const handleFilterChange = (key: keyof SearchFilters, value: string | number | boolean | undefined) => {
     setLocalFilters((prev) => ({ ...prev, [key]: value || undefined }));
     setPage(1);
   };
@@ -188,13 +188,13 @@ function SearchContent() {
   };
 
   const hasActiveFilters =
-    filters.category !== "" ||
-    filters.brand !== "" ||
-    filters.minPrice > 0 ||
-    filters.maxPrice < 1000 ||
-    filters.rating !== "" ||
-    filters.inStock ||
-    filters.onSale;
+    (filters.category ?? "") !== "" ||
+    (filters.brand ?? "") !== "" ||
+    (filters.minPrice ?? 0) > 0 ||
+    (filters.maxPrice ?? 1000) < 1000 ||
+    filters.rating != null ||
+    !!filters.inStock ||
+    !!filters.onSale;
 
   const hasSearch = query.trim().length > 0;
   const hasResults = products.length > 0;
@@ -240,15 +240,15 @@ function SearchContent() {
           min={0}
           max={1000}
           step={10}
-          value={[filters.minPrice, filters.maxPrice]}
+          value={[filters.minPrice ?? 0, filters.maxPrice ?? 1000]}
           onValueChange={([min, max]) => {
             setLocalFilters((prev) => ({ ...prev, minPrice: min || undefined, maxPrice: max || undefined }));
           }}
           className="mb-3"
         />
         <div className="flex items-center justify-between text-sm text-muted-foreground">
-          <span>{formatPrice(filters.minPrice)}</span>
-          <span>{formatPrice(filters.maxPrice)}</span>
+          <span>{formatPrice(filters.minPrice ?? 0)}</span>
+          <span>{formatPrice(filters.maxPrice ?? 1000)}</span>
         </div>
       </div>
 
@@ -264,11 +264,11 @@ function SearchContent() {
               className="flex cursor-pointer items-center gap-2 text-sm text-muted-foreground hover:text-foreground"
             >
               <Checkbox
-                checked={filters.rating === String(option.value)}
+                checked={filters.rating != null && filters.rating === option.value}
                 onCheckedChange={() =>
                   handleFilterChange(
                     "rating",
-                    filters.rating === String(option.value) ? "" : String(option.value)
+                    filters.rating === option.value ? undefined : option.value
                   )
                 }
               />
@@ -485,7 +485,7 @@ function SearchContent() {
                     <p className="text-sm text-muted-foreground">
                       {isLoading ? (
                         "Searching..."
-                      ) : (
+                      ) : pagination ? (
                         <>
                           <span className="font-medium text-foreground">
                             {pagination.total}
@@ -495,7 +495,7 @@ function SearchContent() {
                             &ldquo;{query}&rdquo;
                           </span>
                         </>
-                      )}
+                      ) : null}
                     </p>
                   </div>
 
@@ -534,9 +534,9 @@ function SearchContent() {
                           />
                         </Badge>
                       )}
-                      {(filters.minPrice > 0 || filters.maxPrice < 1000) && (
+                      {((filters.minPrice ?? 0) > 0 || (filters.maxPrice ?? 1000) < 1000) && (
                         <Badge variant="secondary" className="gap-1">
-                          {formatPrice(filters.minPrice)} - {formatPrice(filters.maxPrice)}
+                          {formatPrice(filters.minPrice ?? 0)} - {formatPrice(filters.maxPrice ?? 1000)}
                           <X
                             className="h-3 w-3 cursor-pointer"
                             onClick={() =>
@@ -581,7 +581,7 @@ function SearchContent() {
                   <ErrorState
                     title="Search failed"
                     description={error}
-                    onRetry={fetchResults}
+                    onRetry={refetch}
                   />
                 ) : isLoading ? (
                   <ProductGrid isLoading products={[]} />
@@ -613,7 +613,7 @@ function SearchContent() {
                 )}
 
                 {/* Pagination */}
-                {pagination.totalPages > 1 && !isLoading && hasResults && (
+                {pagination && pagination.totalPages > 1 && !isLoading && hasResults && (
                   <motion.div
                     initial={{ opacity: 0, y: 20 }}
                     animate={{ opacity: 1, y: 0 }}

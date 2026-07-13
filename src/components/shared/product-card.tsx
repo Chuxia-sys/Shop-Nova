@@ -30,15 +30,6 @@ export const ProductCard = memo(function ProductCard({ product, className }: Pro
   const discount = calculateDiscount(product.price, product.compareAtPrice);
   const productReviews = product.reviews ?? [];
   const averageRating =
-  const [isImageLoaded, setIsImageLoaded] = useState(false);
-  const addToCart = useCartStore((s) => s.addItem);
-  const { isInWishlist, toggleItem } = useWishlistStore();
-
-  const primaryImage = product.images?.find((img) => img.isPrimary)?.url || product.images?.[0]?.url;
-  const secondaryImage = product.images?.find((img) => !img.isPrimary)?.url;
-  const discount = calculateDiscount(product.price, product.compareAtPrice);
-  const productReviews = product.reviews ?? [];
-  const averageRating =
     product.averageRating ??
     (productReviews.length > 0
       ? productReviews.reduce((sum, r) => sum + r.rating, 0) / productReviews.length

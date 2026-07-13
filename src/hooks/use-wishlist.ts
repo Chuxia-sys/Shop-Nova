@@ -152,19 +152,15 @@ export function useWishlist(): UseWishlistReturn {
       // Non-blocking: local state is already cleared
     }
   }, [storeClearWishlist]);
-      }
-    } catch {
-      // Non-blocking: local state is already cleared
-    }
-  }, [storeClearWishlist]);
 
   return {
     items,
     count: getCount(),
     addItem,
-    removeItem,
+    removeItem: removeItemFn,
     toggleItem,
     isInWishlist,
     clearWishlist,
+    isAdding: addMutation.isPending || removeMutation.isPending,
   };
 }

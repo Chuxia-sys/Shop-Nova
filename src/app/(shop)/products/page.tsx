@@ -1,6 +1,6 @@
 "use client";
 
-import { Suspense, useCallback, useState } from "react";
+import { Suspense, useCallback, useEffect, useState } from "react";
 import { useRouter, useSearchParams } from "next/navigation";
 import { useQuery } from "@tanstack/react-query";
 import { motion, AnimatePresence } from "framer-motion";
@@ -129,6 +129,7 @@ function ProductsContent() {
     pagination,
     isLoading,
     error,
+    refetch,
   } = useProducts({
     category: debouncedFilters.category || undefined,
     brand: debouncedFilters.brand || undefined,
@@ -452,12 +453,12 @@ function ProductsContent() {
                   <p className="text-sm text-muted-foreground">
                     {isLoading ? (
                       "Loading..."
-                    ) : (
+                    ) : pagination ? (
                       <>
                         <span className="font-medium text-foreground">{pagination.total}</span>{" "}
                         product{pagination.total !== 1 ? "s" : ""} found
                       </>
-                    )}
+                    ) : null}
                   </p>
                 </div>
 
@@ -580,7 +581,7 @@ function ProductsContent() {
                 <ErrorState
                   title="Failed to load products"
                   description={error}
-                  onRetry={fetchProducts}
+                  onRetry={refetch}
                 />
               ) : isLoading ? (
                 <ProductGrid isLoading products={[]} />
@@ -606,7 +607,7 @@ function ProductsContent() {
               )}
 
               {/* Pagination */}
-              {pagination.totalPages > 1 && !isLoading && products.length > 0 && (
+              {pagination && pagination.totalPages > 1 && !isLoading && products.length > 0 && (
                 <motion.div
                   initial={{ opacity: 0, y: 20 }}
                   animate={{ opacity: 1, y: 0 }}

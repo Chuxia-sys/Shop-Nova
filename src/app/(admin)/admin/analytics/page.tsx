@@ -235,7 +235,7 @@ export default function AnalyticsPage() {
         subtitle: "48 new this month",
       },
     ],
-    []
+    [totalOrders, totalRevenue, totalCustomers, totalProducts]
   );
 
   return (
