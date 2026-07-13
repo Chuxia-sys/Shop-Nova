@@ -1,7 +1,7 @@
 import { NextResponse } from "next/server";
 import { cookies } from "next/headers";
 
-const FIREBASE_API_KEY = "AIzaSyAJ5_StcpKWUARQ1C2oZQGymwl_WKEwU_w";
+const FIREBASE_API_KEY = "AIzaSyCjp57qy9edq4CbZv_o7lysP5rVd2imT7I";
 const FIREBASE_TOKEN_URL = "https://securetoken.googleapis.com/v1/token";
 
 export async function POST() {

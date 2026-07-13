@@ -6,8 +6,8 @@ export type AuthResult =
   | { authenticated: true; user: FirebaseUserData }
   | { authenticated: false; error: string };
 
-const FIREBASE_API_KEY = "AIzaSyAJ5_StcpKWUARQ1C2oZQGymwl_WKEwU_w";
-const PROJECT_ID = "shopnova-9aae0";
+const FIREBASE_API_KEY = "AIzaSyCjp57qy9edq4CbZv_o7lysP5rVd2imT7I";
+const PROJECT_ID = "shopnova-408ee";
 
 /**
  * Server-side auth check using Firebase Auth ID token from cookies.

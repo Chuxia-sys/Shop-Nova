@@ -4,7 +4,7 @@ import { loginSchema } from "@/lib/validations";
 import { getDocument } from "@/lib/firestore";
 import type { FirebaseUserData } from "@/lib/firebase-auth";
 
-const FIREBASE_API_KEY = "AIzaSyAJ5_StcpKWUARQ1C2oZQGymwl_WKEwU_w";
+const FIREBASE_API_KEY = "AIzaSyCjp57qy9edq4CbZv_o7lysP5rVd2imT7I";
 const FIREBASE_AUTH_BASE = "https://identitytoolkit.googleapis.com/v1/accounts";
 
 export async function POST(request: Request) {

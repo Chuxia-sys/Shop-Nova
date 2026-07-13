@@ -9,13 +9,13 @@ import { getFirestore } from "firebase/firestore";
 import { getStorage } from "firebase/storage";
 
 const firebaseConfig = {
-  apiKey: "AIzaSyAJ5_StcpKWUARQ1C2oZQGymwl_WKEwU_w",
-  authDomain: "shopnova-9aae0.firebaseapp.com",
-  projectId: "shopnova-9aae0",
-  storageBucket: "shopnova-9aae0.firebasestorage.app",
-  messagingSenderId: "835638988070",
-  appId: "1:835638988070:web:fea65d58025d19cc6d85e7",
-  measurementId: "G-S617T6X3YQ",
+  apiKey: "AIzaSyCjp57qy9edq4CbZv_o7lysP5rVd2imT7I",
+  authDomain: "shopnova-408ee.firebaseapp.com",
+  projectId: "shopnova-408ee",
+  storageBucket: "shopnova-408ee.firebasestorage.app",
+  messagingSenderId: "731311210896",
+  appId: "1:731311210896:web:897be354639db8351ef315",
+  measurementId: "G-HNKQXYPTDB",
 };
 
 const app = getApps().length === 0 ? initializeApp(firebaseConfig) : getApps()[0];
