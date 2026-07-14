@@ -36,6 +36,7 @@ import { NAV_LINKS, SITE_NAME } from "@/lib/constants";
 export function Navbar() {
   const pathname = usePathname();
   const [isScrolled, setIsScrolled] = useState(false);
+  const [mounted, setMounted] = useState(false);
   const { user, isAuthenticated } = useAuthStore();
   const cartCount = useCartStore((s) => s.getItemCount());
   const wishlistCount = useWishlistStore((s) => s.getCount());
@@ -51,6 +52,11 @@ export function Navbar() {
     const handleScroll = () => setIsScrolled(window.scrollY > 20);
     window.addEventListener("scroll", handleScroll);
     return () => window.removeEventListener("scroll", handleScroll);
+  }, []);
+
+  // Prevent hydration mismatch from Zustand persist rehydration
+  useEffect(() => {
+    setMounted(true);
   }, []);
 
   return (
@@ -114,7 +120,7 @@ export function Navbar() {
               <Link href="/wishlist" className="hidden lg:inline-flex">
                 <Button variant="ghost" size="icon" className="relative" aria-label="Wishlist">
                   <Heart className="h-5 w-5" />
-                  {wishlistCount > 0 && (
+                  {mounted && wishlistCount > 0 && (
                     <Badge
                       variant="destructive"
                       className="absolute -right-1 -top-1 h-4 w-4 rounded-full p-0 text-[10px]"
@@ -133,7 +139,7 @@ export function Navbar() {
                 aria-label="Cart"
               >
                 <ShoppingBag className="h-5 w-5" />
-                {cartCount > 0 && (
+                {mounted && cartCount > 0 && (
                   <Badge
                     variant="destructive"
                     className="absolute -right-1 -top-1 h-4 w-4 rounded-full p-0 text-[10px]"
@@ -143,12 +149,24 @@ export function Navbar() {
                 )}
               </Button>
 
-              {isAuthenticated ? (
-                <Link href="/dashboard">
-                  <Button variant="ghost" size="icon" aria-label="Account">
-                    <User className="h-5 w-5" />
-                  </Button>
-                </Link>
+              {mounted ? (
+                isAuthenticated ? (
+                  <Link href="/dashboard">
+                    <Button variant="ghost" size="icon" aria-label="Account">
+                      <User className="h-5 w-5" />
+                    </Button>
+                  </Link>
+                ) : (
+                  <Link href="/login">
+                    <Button
+                      variant="default"
+                      size="sm"
+                      className="hidden lg:inline-flex"
+                    >
+                      Sign In
+                    </Button>
+                  </Link>
+                )
               ) : (
                 <Link href="/login">
                   <Button
