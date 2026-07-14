@@ -389,7 +389,7 @@ function HeroSection() {
       duration: 8,
     },
     {
-      src: "https://images.unsplash.com/photo-1507473885765-e6ed057ab6fe?w=400&q=80",
+      src: "/illustrations/desk-lamp.svg",
       alt: "Lamp",
       className: "bottom-40 right-[1%] w-20 h-20 md:w-28 md:h-28 rotate-12",
       delay: 2,
